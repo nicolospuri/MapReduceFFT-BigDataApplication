@@ -42,13 +42,17 @@ def main():
 
     print('File path: ' + data_path + ' Ka: ' + str(Ka) + ' Kb: ' + str(Kb) + " L: " + str(L))
 
-    inputPoints = sc.textFile(data_path).repartition(numPartitions=L).cache()
+    inputPoints = (sc.textFile(data_path)
+                   .repartition(numPartitions=L)
+                   .map(lambda line: line.split(","))
+                   .map(lambda point: (point(2), (float(point[0]), float(point[1]))))
+                   .groupByKey()
+                   .cache())
 
     # SETTING GLOBAL VARIABLES
-    numPoints = inputPoints.collect().count()
+    numPoints = inputPoints.count()
     print("N = ", numPoints)
 
-    for point in inputPoints.collect():
-
+    #    inputPoints.map(lambda point: (point[2], (point[0], point[1]))).groupByKey()
 
     # Call to MapReduce
