@@ -4,6 +4,29 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Function to check positive integer (Ka, Kb)
+def check_positive_int(value, name):
+    try:
+        n = int(value)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer")
+
+    if n < 0:
+        raise ValueError(f"{name} must be greater than or equal to 0")
+    return n
+
+# Function to check non negative integer (L)
+def check_non_negative_int(value, name):
+    try:
+        n = int(value)
+    except ValueError:
+        raise ValueError(f"{name} must be an integer")
+
+    if n <= 0:
+        raise ValueError(f"{name} must be greater than or equal to 0")
+    return n
+
+# Function to plot points and centroids
 def plot_points(points, centroids, title, filename):
     points = np.asarray(points)
 
@@ -26,6 +49,7 @@ def plot_points(points, centroids, title, filename):
     plt.savefig('output/' + filename, dpi=300, bbox_inches='tight')
     plt.close()
 
+# Farthest First Traversal (FFT) algorithm to select k centroids from the input points
 def fft(X, k):
     """
     X: input vectors (n_samples by dimensionality)
@@ -60,7 +84,7 @@ def fft(X, k):
 
     return centroids
 
-
+# Calls the FFT algorithm for both universes and plots the centroids
 def fair_fft(Xa, Xb, ka, kb):
     """
     Xa: input points of universe a
@@ -70,14 +94,19 @@ def fair_fft(Xa, Xb, ka, kb):
 
     out: centroids of a and b
     """
+    try:
+        centroids_a = fft(Xa, ka)
+        print('Centroids of A = ', centroids_a)
+        plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
+    except ValueError as e:
+        raise ValueError(f"Error for A: {e}")
 
-    centroids_a = fft(Xa, ka)
-    print('Centroids of A = ', centroids_a)
-    plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
-
-    centroids_b = fft(Xb, kb)
-    print('Centroids of B = ', centroids_b)
-    plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
+    try:
+        centroids_b = fft(Xb, kb)
+        print('Centroids of B = ', centroids_b)
+        plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
+    except ValueError as e:
+        raise ValueError(f"Error for B: {e}")
 
     return centroids_a , centroids_b
 
@@ -89,7 +118,9 @@ def fair_fft(Xa, Xb, ka, kb):
 
 def main():
     # CHECKING NUMBER OF CMD LINE PARAMTERS
-    assert len(sys.argv) == 5, "Usage: G48HW1 <data_path> <Ka> <Kb> <L>"
+    if len(sys.argv) != 5:
+        print("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
+        return 1
 
     # SPARK SETUP
     conf = SparkConf().setAppName('G48HW1')
@@ -98,19 +129,18 @@ def main():
     # INPUT READING
 
     data_path = sys.argv[1]
-    assert os.path.isfile(data_path), "File or folder not found"
 
-    ka = sys.argv[2]
-    assert ka.isdigit() and int(ka) >= 0, "Ka must be an integer"
-    ka = int(ka)
+    if not os.path.isfile(data_path):
+        print("File not found")
+        return 1
 
-    kb = sys.argv[3]
-    assert kb.isdigit() and int(kb) >= 0, "Ka must be an integer"
-    kb = int(kb)
-
-    L = sys.argv[4]
-    assert L.isdigit() and int(L) > 0, "L is not an integer"
-    L = int(L)
+    try:
+        ka = check_positive_int(sys.argv[2], "ka")
+        kb = check_positive_int(sys.argv[3], "kb")
+        L = check_non_negative_int(sys.argv[4], "L")
+    except ValueError as e:
+        print(e)
+        return 1
 
     print('File path: ' + data_path + ' Ka: ' + str(ka) + ' Kb: ' + str(kb) + " L: " + str(L))
 
@@ -130,14 +160,24 @@ def main():
 
     print('Na = ', Na, ' Nb = ', Nb)
 
-    assert ka <= Na, "Ka must be less than or equal to Na"
-    assert kb <= Nb, "Kb must be less than or equal to Nb"
-    assert L <= N, "L must be less than or equal to N"
+    if ka > Na:
+        print("Ka must be less than or equal to Na")
+        return 1
+    if kb > Nb:
+        print("Kb must be less than or equal to Nb")
+        return 1
+    if L > N:
+        print("L must be less than or equal to N")
+        return 1
 
     # Test FFT function
     Xa = inputPoints.filter(lambda point: point[2] == "A").map(lambda point: (float(point[0]), float(point[1]))).collect()
     Xb = inputPoints.filter(lambda point: point[2] == "B").map(lambda point: (float(point[0]), float(point[1]))).collect()
-    centroids_a, centroids_b = fair_fft(Xa, Xb, ka, kb)
+    try:
+        centroids_a, centroids_b = fair_fft(Xa, Xb, ka, kb)
+    except ValueError as e:
+        print(e)
+        return 1
 
     # Call to MapReduce
 
