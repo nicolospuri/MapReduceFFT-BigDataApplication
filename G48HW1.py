@@ -1,112 +1,86 @@
 from pyspark import SparkContext, SparkConf
 import sys
 import os
-import random as rand
 import numpy as np
+import matplotlib.pyplot as plt
 
-def Fair_FFT(Xa, Xb, Na, Nb, ka, kb):
+def plot_points(points, centroids, title, filename):
+    points = np.asarray(points)
+
+    if points.ndim != 2 or points.shape[1] != 2:
+        raise ValueError("Plotting is only supported for 2D data.")
+
+    plt.figure(figsize=(7, 6))
+    plt.scatter(points[:, 0], points[:, 1], c='blue', s=40, alpha=0.7, label='Points')
+
+    if len(centroids) > 0:
+        plt.scatter(centroids[:, 0], centroids[:, 1], c='red', s=180, marker='X', label='Centroids')
+
+    plt.title(title)
+    plt.xlabel('x')
+    plt.ylabel('y')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    #plt.gca().set_aspect('equal', adjustable='box')  # To have the same scale on both axes
+    plt.tight_layout()
+    plt.savefig('output/' + filename, dpi=300, bbox_inches='tight')
+    plt.close()
+
+def fft(X, k):
+    """
+    X: input vectors (n_samples by dimensionality)
+    D: distance matrix (n_samples by n_samples)
+    k: number of centroids
+
+    out: centroids
+    """
+
+    points = np.asarray(X)
+    N = len(points)
+
+    if k < 0 or k > N:
+        raise ValueError("k must be between 0 and N")
+
+    if k == 0 or N == 0:
+        return np.array([])
+
+    first_idx = np.random.randint(N)
+    centroids = [points[first_idx]]     # Put the first random centroid
+
+    dist = np.linalg.norm(points - centroids[0], axis=1)   # Euclidean distance of all points from the first centroid
+
+    while len(centroids) < k:
+        next_idx = np.argmax(dist)     # Select the point with the maximum distance from the nearest centroid
+        centroids.append(points[next_idx])
+
+        new_dist = np.linalg.norm(points - centroids[-1], axis=1)
+        dist = np.minimum(dist, new_dist)
+
+    centroids = np.array(centroids)
+
+    return centroids
+
+
+def fair_fft(Xa, Xb, ka, kb):
     """
     Xa: input points of universe a
     Xb: input points of universe b
     ka: number of centroids of a
     kb: number of centroids of b
-    Na: number of points of a
-    Nb: number of points of b
 
-    pointsA: np.array of points of universe a
-    pointsB: np.array of points of universe b
-    distA: list of distances of points of universe a from the nearest centroid
-    distB: list of distances of points of universe b from the nearest centroid
-    sortedDistA: sorted distA
-    sortedDistB: sorted distB
-
-    out: indices of centroids
+    out: centroids of a and b
     """
 
-    # --------------------------------------- Procedure for universe a ------------------------------
+    centroids_a = fft(Xa, ka)
+    print('Centroids of A = ', centroids_a)
+    plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
 
-    centroidsA = []
-    idxA = []
-    # Randomly select the first centroid
-    ia = np.int32(np.random.uniform(Na))
-    pointsA = np.array(Xa)
-    distA = []
-    sortedDistA = []
+    centroids_b = fft(Xb, kb)
+    print('Centroids of B = ', centroids_b)
+    plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
 
-    if ka > 0:      # if ka == 0 -> no centroids for universe a, so we skip the selection of centroids for universe a
-        centroidsA.append(pointsA[ia])     # Put the first random centroid
-        idxA.append(ia)
+    return centroids_a , centroids_b
 
-    if ka > 1:
-        # First iteration, just calculate the distances and take the new centroid
-        for i in range(0, Na):
-            distA.append(np.linalg.norm(centroidsA[0] - pointsA[i]))      # Euclidean distance
-            sortedDistA = distA.copy()
-        for i in np.argsort(sortedDistA)[::-1]:  # Sort the distances in descending order and select the point with the maximum distance
-            centroidsA.append(pointsA[i])
-            idxA.append(i)
-            break
-
-        # Next iterations, we update the distances and select the new centroid
-        while len(centroidsA) < ka:       # While we have not selected enough centroids
-            for i in range(0, Na):
-                if i not in idxA:     # If the point is not a centroid
-                    currDist = np.linalg.norm(centroidsA[-1] - pointsA[i])     # Calculate the distance of the point from the last selected centroid
-                    distA.append(min(currDist, distA[i]))      # Update the distance of the point from the nearest centroid
-                else:
-                    distA[i] = 0      # If the point is a centroid, its distance from the nearest centroid is 0
-            sortedDistA = distA.copy()
-
-            for i in np.argsort(sortedDistA)[::-1]:       # Sort the distances in descending order and select the point with the maximum distance
-                centroidsA.append(pointsA[i])
-                idxA.append(i)
-                break
-
-    print('centroidsA = ', centroidsA)
-
-    # ------------------------------ Same procedure for universe b ------------------------------
-
-    centroidsB = []
-    idxB = []
-    # Randomly select the first centroid
-    ib = np.int32(np.random.uniform(Nb))
-    pointsB = np.array(Xb)
-    distB = []
-    sortedDistB = []
-
-    if kb > 0:  # if ka == 0 -> no centroids for universe a, so we skip the selection of centroids for universe a
-        centroidsB.append(pointsB[ib])  # Put the first random centroid
-        idxB.append(ib)
-
-    if kb > 1:
-        # First iteration, just calculate the distances and take the new centroid
-        for i in range(0, Nb):
-            distB.append(np.linalg.norm(centroidsB[0] - pointsB[i]))  # Euclidean distance
-            sortedDistB = distB.copy()
-        for i in np.argsort(sortedDistB)[::-1]:  # Sort the distances in descending order and select the point with the maximum distance
-            centroidsB.append(pointsB[i])
-            idxB.append(i)
-            break
-
-        # Next iterations, we update the distances and select the new centroid
-        while len(centroidsB) < kb:  # While we have not selected enough centroids
-            for i in range(0, Nb):
-                if i not in idxB:  # If the point is not a centroid
-                    currDist = np.linalg.norm(centroidsB[-1] - pointsB[i])  # Calculate the distance of the point from the last selected centroid
-                    distB.append(min(currDist, distB[i]))  # Update the distance of the point from the nearest centroid
-                else:
-                    distB[i] = 0  # If the point is a centroid, its distance from the nearest centroid is 0
-            sortedDistB = distB.copy()
-
-            for i in np.argsort(sortedDistB)[::-1]:  # Sort the distances in descending order and select the point with the maximum distance
-                centroidsB.append(pointsB[i])
-                idxB.append(i)
-                break
-
-    print('centroidsB = ', centroidsB)
-
-
-    return np.array(centroidsA), np.array(centroidsB)
 
 
 # def MRFairFFT():
@@ -163,7 +137,7 @@ def main():
     # Test FFT function
     Xa = inputPoints.filter(lambda point: point[2] == "A").map(lambda point: (float(point[0]), float(point[1]))).collect()
     Xb = inputPoints.filter(lambda point: point[2] == "B").map(lambda point: (float(point[0]), float(point[1]))).collect()
-    centroidsA, centroidsB = Fair_FFT(Xa, Xb, Na, Nb, ka, kb)
+    centroids_a, centroids_b = fair_fft(Xa, Xb, ka, kb)
 
     # Call to MapReduce
 
