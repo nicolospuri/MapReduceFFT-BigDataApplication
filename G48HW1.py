@@ -97,14 +97,14 @@ def fair_fft(Xa, Xb, ka, kb):
     try:
         centroids_a = fft(Xa, ka)
         print('Centroids of A = ', centroids_a)
-        plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
+      #  plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
     except ValueError as e:
         raise ValueError(f"Error for A: {e}")
 
     try:
         centroids_b = fft(Xb, kb)
         print('Centroids of B = ', centroids_b)
-        plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
+       # plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
     except ValueError as e:
         raise ValueError(f"Error for B: {e}")
 
@@ -148,14 +148,14 @@ def main():
     inputPoints = (sc.textFile(data_path)
                    .repartition(numPartitions=L)
                    .map(lambda line: line.split(","))
-                   .map(lambda point: (float(point[0]), float(point[1]), point[2])) # TODO: sistemare nel caso di più dimensioni
+                   .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1])) # TODO: sistemare nel caso di più dimensioni
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
     N = inputPoints.count()
     print('N = ', N)
 
-    Na = inputPoints.filter(lambda point: point[2] == "A").count()
+    Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
 
     print('Na = ', Na, ' Nb = ', Nb)
@@ -171,13 +171,35 @@ def main():
         return 1
 
     # Test FFT function
-    Xa = inputPoints.filter(lambda point: point[2] == "A").map(lambda point: (float(point[0]), float(point[1]))).collect()
-    Xb = inputPoints.filter(lambda point: point[2] == "B").map(lambda point: (float(point[0]), float(point[1]))).collect()
+    Xa = inputPoints.filter(lambda point: point[1] == "A").map(lambda point: point[0]).collect()
+    Xb = inputPoints.filter(lambda point: point[1] == "B").map(lambda point: point[0]).collect()
     try:
         centroids_a, centroids_b = fair_fft(Xa, Xb, ka, kb)
     except ValueError as e:
         print(e)
         return 1
+
+    # OBJECTIVE FUNCTION CALCULATION
+    
+    # Merge all centroids and all points together
+    all_centroids = np.concatenate((centroids_a, centroids_b))
+    all_points = np.concatenate((Xa, Xb))
+    
+    max_dist = 0
+    
+    # Find the maximum of the minimum distances
+    for point in all_points:
+        # Distance from this point to ALL centroids
+        distances = np.linalg.norm(all_centroids - point, axis=1)
+        
+        # Distance to the NEAREST centroid
+        min_dist = np.min(distances)
+        
+        # Update maximum distance found so far
+        if min_dist > max_dist:
+            max_dist = min_dist
+            
+    print("Objective function =", max_dist)
 
     # Call to MapReduce
 
