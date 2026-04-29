@@ -26,7 +26,7 @@ def check_non_negative_int(value, name):
         raise ValueError(f"{name} must be greater than or equal to 0")
     return n
 
-# Function to plot points and centroids
+# Function to plot points and centroids (only for 2D data) and save the plot as a PNG file in the output folder
 def plot_points(points, centroids, title, filename):
     points = np.asarray(points)
 
@@ -62,14 +62,16 @@ def fft(X, k):
     points = np.asarray(X)
     N = len(points)
 
+    # Check if k is valid
     if k < 0 or k > N:
         raise ValueError("k must be between 0 and N")
 
     if k == 0 or N == 0:
         return np.array([])
 
+    # Put the first random centroid
     first_idx = np.random.randint(N)
-    centroids = [points[first_idx]]     # Put the first random centroid
+    centroids = [points[first_idx]]
 
     dist = np.linalg.norm(points - centroids[0], axis=1)   # Euclidean distance of all points from the first centroid
 
@@ -77,14 +79,14 @@ def fft(X, k):
         next_idx = np.argmax(dist)     # Select the point with the maximum distance from the nearest centroid
         centroids.append(points[next_idx])
 
-        new_dist = np.linalg.norm(points - centroids[-1], axis=1)
-        dist = np.minimum(dist, new_dist)
+        new_dist = np.linalg.norm(points - centroids[-1], axis=1)       # Euclidean distance of all points from the new centroid
+        dist = np.minimum(dist, new_dist)       # Update the distance of all points from the nearest centroid
 
     centroids = np.array(centroids)
 
     return centroids
 
-# Calls the FFT algorithm for both universes and plots the centroids
+# FFT algorithm for both universes and plot the centroids and the points (if 2D)
 def fair_fft(Xa, Xb, ka, kb):
     """
     Xa: input points of universe a
@@ -93,7 +95,7 @@ def fair_fft(Xa, Xb, ka, kb):
     kb: number of centroids of b
 
     out: centroids of a and b
-    """
+
     try:
         centroids_a = fft(Xa, ka)
         print('Centroids of A = ', centroids_a)
@@ -107,8 +109,74 @@ def fair_fft(Xa, Xb, ka, kb):
        # plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
     except ValueError as e:
         raise ValueError(f"Error for B: {e}")
+    """
+    #-------------------------------------------------------------
 
-    return centroids_a , centroids_b
+    points_a = np.asarray(Xa)
+    Na = len(points_a)
+
+    # Check if k is valid
+    if ka < 0 or ka > Na:
+        raise ValueError("ka must be between 0 and Na")
+
+    if ka == 0 or Na == 0:
+        return np.array([])
+
+    points_b = np.asarray(Xb)
+    Nb = len(points_b)
+
+    # Check if k is valid
+    if kb < 0 or kb > Nb:
+        raise ValueError("kb must be between 0 and Nb")
+
+    if kb == 0 or Nb == 0:
+        return np.array([])
+
+    # Put the first random centroid for a
+    first_idx_a = np.random.randint(Na)
+    centroids_a = [points_a[first_idx_a]]
+
+    # Put the first random centroid for b
+    first_idx_b = np.random.randint(Nb)
+    centroids_b = [points_b[first_idx_b]]
+
+    dist_a = np.linalg.norm(points_a - centroids_a[0], axis=1)  # Euclidean distance of all points from the first centroid of a
+    dist_b = np.linalg.norm(points_b - centroids_b[0], axis=1)  # Euclidean distance of all points from the first centroid of b
+
+    max_k = max(ka, kb)
+
+    for i in range(1, max_k):
+        # fft for a if there are still centroids to select for a, otherwise skip to b
+        if i < ka:
+            next_idx_a = np.argmax(dist_a)  # Select the point with the maximum distance from the nearest centroid
+            centroids_a.append(points_a[next_idx_a])
+
+            new_dist_a = np.linalg.norm(points_a - centroids_a[-1], axis=1)  # Euclidean distance of all points from the new centroid
+            dist_a = np.minimum(dist_a, new_dist_a)  # Update the distance of all points from the nearest centroid
+
+        # fft for a if there are still centroids to select for b, otherwise skip
+        if i < kb:
+            next_idx_b = np.argmax(dist_b)  # Select the point with the maximum distance from the nearest centroid
+            centroids_b.append(points_b[next_idx_b])
+
+            new_dist_b = np.linalg.norm(points_b - centroids_b[-1], axis=1)  # Euclidean distance of all points from the new centroid
+            dist_b = np.minimum(dist_b, new_dist_b)  # Update the distance of all points from the nearest centroid
+
+    centroids_a = np.array(centroids_a)
+    centroids_b = np.array(centroids_b)
+
+    # Plot the centroids and the points
+    try:
+        plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
+    except(ValueError) as e:
+        print(f"Error plotting A: {e}")
+
+    try:
+        plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
+    except(ValueError) as e:
+        print(f"Error plotting B: {e}")
+
+    return centroids_a, centroids_b
 
 
 
@@ -117,17 +185,16 @@ def fair_fft(Xa, Xb, ka, kb):
 
 
 def main():
-    # CHECKING NUMBER OF CMD LINE PARAMTERS
-    if len(sys.argv) != 5:
-        print("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
-        return 1
-
     # SPARK SETUP
     conf = SparkConf().setAppName('G48HW1')
     sc = SparkContext(conf=conf)
 
-    # INPUT READING
+    # Check number of arguments
+    if len(sys.argv) != 5:
+        print("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
+        return 1
 
+    # Input reading and checking
     data_path = sys.argv[1]
 
     if not os.path.isfile(data_path):
@@ -144,7 +211,7 @@ def main():
 
     print('File path: ' + data_path + ' Ka: ' + str(ka) + ' Kb: ' + str(kb) + " L: " + str(L))
 
-    # Read input file and subdivide it into L random partitions and divide into tuples of points (x, y, label)
+    # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
     inputPoints = (sc.textFile(data_path)
                    .repartition(numPartitions=L)
                    .map(lambda line: line.split(","))
@@ -160,6 +227,7 @@ def main():
 
     print('Na = ', Na, ' Nb = ', Nb)
 
+    # Checking if Ka, Kb and L are valid
     if ka > Na:
         print("Ka must be less than or equal to Na")
         return 1
