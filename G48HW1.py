@@ -49,43 +49,6 @@ def plot_points(points, centroids, title, filename):
     plt.savefig('output/' + filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-# Farthest First Traversal (FFT) algorithm to select k centroids from the input points
-def fft(X, k):
-    """
-    X: input vectors (n_samples by dimensionality)
-    D: distance matrix (n_samples by n_samples)
-    k: number of centroids
-
-    out: centroids
-    """
-
-    points = np.asarray(X)
-    N = len(points)
-
-    # Check if k is valid
-    if k < 0 or k > N:
-        raise ValueError("k must be between 0 and N")
-
-    if k == 0 or N == 0:
-        return np.array([])
-
-    # Put the first random centroid
-    first_idx = np.random.randint(N)
-    centroids = [points[first_idx]]
-
-    dist = np.linalg.norm(points - centroids[0], axis=1)   # Euclidean distance of all points from the first centroid
-
-    while len(centroids) < k:
-        next_idx = np.argmax(dist)     # Select the point with the maximum distance from the nearest centroid
-        centroids.append(points[next_idx])
-
-        new_dist = np.linalg.norm(points - centroids[-1], axis=1)       # Euclidean distance of all points from the new centroid
-        dist = np.minimum(dist, new_dist)       # Update the distance of all points from the nearest centroid
-
-    centroids = np.array(centroids)
-
-    return centroids
-
 # FFT algorithm for both universes and plot the centroids and the points (if 2D)
 def fair_fft(Xa, Xb, ka, kb):
     """
@@ -95,20 +58,6 @@ def fair_fft(Xa, Xb, ka, kb):
     kb: number of centroids of b
 
     out: centroids of a and b
-
-    try:
-        centroids_a = fft(Xa, ka)
-        print('Centroids of A = ', centroids_a)
-      #  plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
-    except ValueError as e:
-        raise ValueError(f"Error for A: {e}")
-
-    try:
-        centroids_b = fft(Xb, kb)
-        print('Centroids of B = ', centroids_b)
-       # plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
-    except ValueError as e:
-        raise ValueError(f"Error for B: {e}")
     """
     #-------------------------------------------------------------
 
@@ -168,12 +117,12 @@ def fair_fft(Xa, Xb, ka, kb):
     # Plot the centroids and the points
     try:
         plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
-    except(ValueError) as e:
+    except ValueError as e:
         print(f"Error plotting A: {e}")
 
     try:
         plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
-    except(ValueError) as e:
+    except ValueError as e:
         print(f"Error plotting B: {e}")
 
     return centroids_a, centroids_b
@@ -215,7 +164,7 @@ def main():
     inputPoints = (sc.textFile(data_path)
                    .repartition(numPartitions=L)
                    .map(lambda line: line.split(","))
-                   .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1])) # TODO: sistemare nel caso di più dimensioni
+                   .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1]))
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
@@ -238,6 +187,7 @@ def main():
         print("L must be less than or equal to N")
         return 1
 
+    # ----------------------------------------------- TESTING -----------------------------------------------
     # Test FFT function
     Xa = inputPoints.filter(lambda point: point[1] == "A").map(lambda point: point[0]).collect()
     Xb = inputPoints.filter(lambda point: point[1] == "B").map(lambda point: point[0]).collect()
