@@ -26,6 +26,24 @@ def check_non_negative_int(value, name):
         raise ValueError(f"{name} must be greater than or equal to 0")
     return n
 
+def calc_objective_function(points, centroids):
+    max_dist = 0
+
+    # Find the maximum of the minimum distances
+    for point in points:
+        # Distance from this point to ALL centroids
+        distances = np.linalg.norm(centroids - point, axis=1)
+
+        # Distance to the NEAREST centroid
+        min_dist = np.min(distances)
+
+        # Update maximum distance found so far
+        max_dist = max(max_dist, min_dist)
+
+    print("Objective function =", max_dist)
+
+    return max_dist
+
 # Function to plot points and centroids (only for 2D data) and save the plot as a PNG file in the output folder
 def plot_points(points, centroids, title, filename):
     points = np.asarray(points)
@@ -59,38 +77,46 @@ def fair_fft(Xa, Xb, ka, kb):
 
     out: centroids of a and b
     """
-    #-------------------------------------------------------------
 
     points_a = np.asarray(Xa)
     Na = len(points_a)
 
-    # Check if k is valid
-    if ka < 0 or ka > Na:
+    # Check if ka is greater than 0, this should never happen
+    if ka < 0:
         raise ValueError("ka must be between 0 and Na")
 
-    if ka == 0 or Na == 0:
-        return np.array([])
+    ka = min (ka, Na)  # If ka is greater than Na, we can only select Na centroids
 
     points_b = np.asarray(Xb)
     Nb = len(points_b)
 
-    # Check if k is valid
-    if kb < 0 or kb > Nb:
-        raise ValueError("kb must be between 0 and Nb")
+    # Check if kb is greater than 0, this should never happen
+    if kb < 0:
+        raise ValueError("kb must be greater than 0")
 
-    if kb == 0 or Nb == 0:
-        return np.array([])
+    kb = min (kb, Nb)  # If kb is greater than Nb, we can only select Nb centroids
 
-    # Put the first random centroid for a
-    first_idx_a = np.random.randint(Na)
-    centroids_a = [points_a[first_idx_a]]
+    dist_a = np.array([])
 
-    # Put the first random centroid for b
-    first_idx_b = np.random.randint(Nb)
-    centroids_b = [points_b[first_idx_b]]
+    if ka == 0 and Na == 0:
+        centroids_a = []
+    else:
+        # Put the first random centroid for a
+        first_idx_a = np.random.randint(Na)
+        centroids_a = [points_a[first_idx_a]]
+        dist_a = np.linalg.norm(points_a - centroids_a[0],
+                                axis=1)  # Euclidean distance of all points from the first centroid of a
 
-    dist_a = np.linalg.norm(points_a - centroids_a[0], axis=1)  # Euclidean distance of all points from the first centroid of a
-    dist_b = np.linalg.norm(points_b - centroids_b[0], axis=1)  # Euclidean distance of all points from the first centroid of b
+    dist_b = np.array([])
+
+    if kb == 0 and Nb == 0:
+        centroids_b = []
+    else:
+        # Put the first random centroid for b
+        first_idx_b = np.random.randint(Nb)
+        centroids_b = [points_b[first_idx_b]]
+        dist_b = np.linalg.norm(points_b - centroids_b[0],
+                                axis=1)  # Euclidean distance of all points from the first centroid of b
 
     max_k = max(ka, kb)
 
@@ -131,11 +157,9 @@ def fair_fft(Xa, Xb, ka, kb):
     return centroids_a, centroids_b
 
 
-
 def local_fft(iterator, ka, kb):
 
     my_points = list(iterator)
-
 
     #numero random tra k/L arrotondato al k più grande e il
     points_a = [p[0] for p in my_points if p[1] == 'A']
@@ -143,18 +167,19 @@ def local_fft(iterator, ka, kb):
     local_a, local_b = fair_fft(points_a, points_b, ka, kb)
     return [(x, 'A') for x in local_a], [(x, 'B') for x in local_b] 
 
+"""
+def MRFairFFT(inputPoints, ka, kb, L):
 
-def MRFairFFT(inputPoints, ka, kb):
+    Na = inputPoints.filter(lambda point: point[1] == 'A').count()
+    Nb = inputPoints.filter(lambda point: point[1] == 'B').count()
 
-    local_coreset_size_a = min(ka * 3, total_a / L)  # DA CAPIRE!!!!!
-    local_coreset_size_b = min(kb * 3, total_b / L)  # DA CAPIRE!!!!!  
-    coreset = inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b)).collect()  
-    
+    local_coreset_size_a = min(ka/L, Na / L)  # DA CAPIRE!!!!!
+    local_coreset_size_b = min(kb/L, Nb / L)  # DA CAPIRE!!!!!
 
-    final_a_candidates = [p[0] for p in coreset if p[1] == 'A']
-    final_b_candidates = [p[0] for p in coreset if p[1] == 'B']
-    
-    return fair_fft(final_a_candidates, final_b_candidates, ka, kb)
+    coresets = inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b))
+                        .flatMap(gatherCoresets)  # gatherCoresets is a function that takes the output of local_fft and gathers all the centroids together in a single list
+                        .flatMap(lambda it: local_fft(it, ka, kb))
+"""
 
 
 
@@ -213,7 +238,8 @@ def main():
         return 1
 
     # ----------------------------------------------- TESTING -----------------------------------------------
-    # Test FFT function
+
+    # Test fair fft function
     Xa = inputPoints.filter(lambda point: point[1] == "A").map(lambda point: point[0]).collect()
     Xb = inputPoints.filter(lambda point: point[1] == "B").map(lambda point: point[0]).collect()
     try:
@@ -227,22 +253,9 @@ def main():
     # Merge all centroids and all points together
     all_centroids = np.concatenate((centroids_a, centroids_b))
     all_points = np.concatenate((Xa, Xb))
-    
-    max_dist = 0
-    
-    # Find the maximum of the minimum distances
-    for point in all_points:
-        # Distance from this point to ALL centroids
-        distances = np.linalg.norm(all_centroids - point, axis=1)
-        
-        # Distance to the NEAREST centroid
-        min_dist = np.min(distances)
-        
-        # Update maximum distance found so far
-        if min_dist > max_dist:
-            max_dist = min_dist
-            
-    print("Objective function =", max_dist)
+
+    calc_objective_function(all_points, all_centroids)
+
 
     # Call to MapReduce
 
