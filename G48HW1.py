@@ -112,7 +112,10 @@ def fair_fft(Xa, Xb, ka, kb):
             dist_b = np.minimum(dist_b, new_dist_b)  # Update the distance of all points from the nearest centroid
 
     centroids_a = np.array(centroids_a)
+    print("Centroids of A: ", centroids_a)
+
     centroids_b = np.array(centroids_b)
+    print("Centroids of B: ", centroids_b)
 
     # Plot the centroids and the points
     try:
