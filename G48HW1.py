@@ -132,7 +132,29 @@ def fair_fft(Xa, Xb, ka, kb):
 
 
 
-# def MRFairFFT():
+def local_fft(iterator, ka, kb):
+
+    my_points = list(iterator)
+
+
+    #numero random tra k/L arrotondato al k più grande e il
+    points_a = [p[0] for p in my_points if p[1] == 'A']
+    points_b = [p[0] for p in my_points if p[1] == 'B']
+    local_a, local_b = fair_fft(points_a, points_b, ka, kb)
+    return [(x, 'A') for x in local_a], [(x, 'B') for x in local_b] 
+
+
+def MRFairFFT(inputPoints, ka, kb):
+
+    local_coreset_size_a = min(ka * 3, total_a / L)  # DA CAPIRE!!!!!
+    local_coreset_size_b = min(kb * 3, total_b / L)  # DA CAPIRE!!!!!  
+    coreset = inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b)).collect()  
+    
+
+    final_a_candidates = [p[0] for p in coreset if p[1] == 'A']
+    final_b_candidates = [p[0] for p in coreset if p[1] == 'B']
+    
+    return fair_fft(final_a_candidates, final_b_candidates, ka, kb)
 
 
 
