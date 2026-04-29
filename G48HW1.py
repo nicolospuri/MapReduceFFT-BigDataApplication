@@ -3,6 +3,8 @@ import sys
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import time
+import math
 
 # Function to check positive integer (Ka, Kb)
 def check_positive_int(value, name):
@@ -138,11 +140,12 @@ def fair_fft(Xa, Xb, ka, kb):
             dist_b = np.minimum(dist_b, new_dist_b)  # Update the distance of all points from the nearest centroid
 
     centroids_a = np.array(centroids_a)
-    print("Centroids of A: ", centroids_a)
+   # print("Centroids of A: ", centroids_a)
 
     centroids_b = np.array(centroids_b)
-    print("Centroids of B: ", centroids_b)
+   # print("Centroids of B: ", centroids_b)
 
+    '''
     # Plot the centroids and the points
     try:
         plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
@@ -152,7 +155,8 @@ def fair_fft(Xa, Xb, ka, kb):
     try:
         plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
     except ValueError as e:
-        print(f"Error plotting B: {e}")
+        print(f"Error plotting B: {e}") 
+        '''
 
     return centroids_a, centroids_b
 
@@ -161,26 +165,33 @@ def local_fft(iterator, ka, kb):
 
     my_points = list(iterator)
 
-    #numero random tra k/L arrotondato al k più grande e il
     points_a = [p[0] for p in my_points if p[1] == 'A']
     points_b = [p[0] for p in my_points if p[1] == 'B']
+
     local_a, local_b = fair_fft(points_a, points_b, ka, kb)
-    return [(x, 'A') for x in local_a], [(x, 'B') for x in local_b] 
 
-"""
-def MRFairFFT(inputPoints, ka, kb, L):
+    return [(x, 'A') for x in local_a] + [(x, 'B') for x in local_b] 
 
-    Na = inputPoints.filter(lambda point: point[1] == 'A').count()
-    Nb = inputPoints.filter(lambda point: point[1] == 'B').count()
 
-    local_coreset_size_a = min(ka/L, Na / L)  # DA CAPIRE!!!!!
-    local_coreset_size_b = min(kb/L, Nb / L)  # DA CAPIRE!!!!!
+def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
 
-    coresets = inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b))
-                        .flatMap(gatherCoresets)  # gatherCoresets is a function that takes the output of local_fft and gathers all the centroids together in a single list
-                        .flatMap(lambda it: local_fft(it, ka, kb))
-"""
+    # Na = inputPoints.filter(lambda point: point[1] == 'A').count()
+    # Nb = inputPoints.filter(lambda point: point[1] == 'B').count()
 
+    local_coreset_size_a = int(min(math.ceil(ka/L), (Na / L)))  # DA CAPIRE!!!!!
+    local_coreset_size_b = int(min(math.ceil(kb/L), (Nb / L)))  # DA CAPIRE!!!!!
+
+    coresets = (inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b))
+                            #.flatMap(gatherCoresets)  # gatherCoresets is a function that takes the output of local_fft and gathers all the centroids together in a single list
+                            #.flatMap(lambda it: local_fft(it, ka, kb))
+                            .collect())
+    
+    ca = list(set(tuple(p[0]) for p in coresets if p[1] == 'A'))
+    cb = list(set(tuple(p[0]) for p in coresets if p[1] == 'B'))
+
+    return fair_fft(ca, cb, ka, kb)
+                
+  
 
 
 def main():
@@ -219,12 +230,9 @@ def main():
 
     # Counting number of points in the input file and number of points with label A and B
     N = inputPoints.count()
-    print('N = ', N)
 
     Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
-
-    print('Na = ', Na, ' Nb = ', Nb)
 
     # Checking if Ka, Kb and L are valid
     if ka > Na:
@@ -236,25 +244,35 @@ def main():
     if L > N:
         print("L must be less than or equal to N")
         return 1
-
-    # ----------------------------------------------- TESTING -----------------------------------------------
-
-    # Test fair fft function
-    Xa = inputPoints.filter(lambda point: point[1] == "A").map(lambda point: point[0]).collect()
-    Xb = inputPoints.filter(lambda point: point[1] == "B").map(lambda point: point[0]).collect()
-    try:
-        centroids_a, centroids_b = fair_fft(Xa, Xb, ka, kb)
-    except ValueError as e:
-        print(e)
-        return 1
-
-    # OBJECTIVE FUNCTION CALCULATION
     
+    start_time = time.time()
+
+    centroids_a, centroids_b = MRFairFFT(inputPoints, ka, kb, Na, Nb, L)
+
+    end_time = time.time()
+
+    duration_ms = int((end_time - start_time) * 1000)
+
+    print(f"File path = {os.path.basename(data_path)}, KA = {ka}, KB = {kb}, L = {L}")
+    print(f"N = {N}, NA = {Na}, NB = {Nb}")
+
+    for c in centroids_b:        
+        print(f"Center = {list(c)} Label = B")
+
+    for c in centroids_a:
+        print(f"Center = {list(c)} Label = A")
+# ----------------------------------------------- TESTING -----------------------------------------------
+
+   
+    # OBJECTIVE FUNCTION CALCULATION
+
     # Merge all centroids and all points together
     all_centroids = np.concatenate((centroids_a, centroids_b))
-    all_points = np.concatenate((Xa, Xb))
+    all_points = inputPoints.map(lambda x: x[0]).collect()  # Get only the points from the input RDD
 
     calc_objective_function(all_points, all_centroids)
+
+    print(f"Running time of MRFairFFT = {duration_ms} ms")
 
 
     # Call to MapReduce
