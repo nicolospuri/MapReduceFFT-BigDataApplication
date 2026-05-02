@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import time
 import math
 
+
 # Function to check positive integer (Ka, Kb)
 def check_positive_int(value, name):
     try:
@@ -28,24 +29,7 @@ def check_non_negative_int(value, name):
         raise ValueError(f"{name} must be greater than or equal to 0")
     return n
 
-def calc_objective_function(points, centroids):
-    max_dist = 0
-
-    # Find the maximum of the minimum distances
-    for point in points:
-        # Distance from this point to ALL centroids
-        distances = np.linalg.norm(centroids - point, axis=1)
-
-        # Distance to the NEAREST centroid
-        min_dist = np.min(distances)
-
-        # Update maximum distance found so far
-        max_dist = max(max_dist, min_dist)
-
-    print("Objective function =", max_dist)
-
-    return max_dist
-
+'''
 # Function to plot points and centroids (only for 2D data) and save the plot as a PNG file in the output folder
 def plot_points(points, centroids, title, filename):
     points = np.asarray(points)
@@ -68,20 +52,59 @@ def plot_points(points, centroids, title, filename):
     plt.tight_layout()
     plt.savefig('output/' + filename, dpi=300, bbox_inches='tight')
     plt.close()
+'''
+
+# TODO: non bisognerebbe calcolarla su tutti i punti insieme ma passo dopo passo nel map reduce
+def calc_objective_function(points, centroids):
+    max_dist = 0
+
+    points = np.asarray(points.map(lambda p: p[0]).collect())
+    centroids = np.asarray(centroids.map(lambda p: p[0]).collect())
+
+    # Find the maximum of the minimum distances
+    for point in points:
+        # Distance from this point to ALL centroids
+        distances = np.linalg.norm(centroids - point, axis=1)
+
+        # Distance to the NEAREST centroid
+        min_dist = np.min(distances)
+
+        # Update maximum distance found so far
+        max_dist = max(max_dist, min_dist)
+
+    print("Objective function =", max_dist)
+
+    return max_dist
 
 # FFT algorithm for both universes and plot the centroids and the points (if 2D)
-def fair_fft(Xa, Xb, ka, kb):
+def Fair_FFT(X, ka, kb):
     """
-    Xa: input points of universe a
-    Xb: input points of universe b
+    X: iterator of points (x, label) where x is a tuple of coordinates and label is either 'A' or 'B'
     ka: number of centroids of a
     kb: number of centroids of b
 
     out: centroids of a and b
     """
 
-    points_a = np.asarray(Xa)
+    # GET THE POINTS FOR EACH UNIVERSE
+
+    data = list(X)
+
+    # Points split
+    a_list = []
+    b_list = []
+
+    for point, label in data:
+        if label == 'A':
+            a_list.append(point)
+        else:
+            b_list.append(point)
+
+    points_a = np.array(a_list)
+    points_b = np.array(b_list)
+
     Na = len(points_a)
+    Nb = len(points_b)
 
     # Check if ka is greater than 0, this should never happen
     if ka < 0:
@@ -89,18 +112,17 @@ def fair_fft(Xa, Xb, ka, kb):
 
     ka = min (ka, Na)  # If ka is greater than Na, we can only select Na centroids
 
-    points_b = np.asarray(Xb)
-    Nb = len(points_b)
-
     # Check if kb is greater than 0, this should never happen
     if kb < 0:
         raise ValueError("kb must be greater than 0")
 
     kb = min (kb, Nb)  # If kb is greater than Nb, we can only select Nb centroids
 
+    # FIRST CENTROID FOR A
+
     dist_a = np.array([])
 
-    if ka == 0 and Na == 0:
+    if ka == 0 or Na == 0:
         centroids_a = []
     else:
         # Put the first random centroid for a
@@ -109,9 +131,11 @@ def fair_fft(Xa, Xb, ka, kb):
         dist_a = np.linalg.norm(points_a - centroids_a[0],
                                 axis=1)  # Euclidean distance of all points from the first centroid of a
 
+    # FIRST CENTROID FOR B
+
     dist_b = np.array([])
 
-    if kb == 0 and Nb == 0:
+    if kb == 0 or Nb == 0:
         centroids_b = []
     else:
         # Put the first random centroid for b
@@ -119,6 +143,8 @@ def fair_fft(Xa, Xb, ka, kb):
         centroids_b = [points_b[first_idx_b]]
         dist_b = np.linalg.norm(points_b - centroids_b[0],
                                 axis=1)  # Euclidean distance of all points from the first centroid of b
+
+    # MAIIN ITERATION OF THE FFT ALGORITHM FOT BOTH UNIVERSES
 
     max_k = max(ka, kb)
 
@@ -139,58 +165,24 @@ def fair_fft(Xa, Xb, ka, kb):
             new_dist_b = np.linalg.norm(points_b - centroids_b[-1], axis=1)  # Euclidean distance of all points from the new centroid
             dist_b = np.minimum(dist_b, new_dist_b)  # Update the distance of all points from the nearest centroid
 
-    centroids_a = np.array(centroids_a)
-   # print("Centroids of A: ", centroids_a)
+    centroids_a = [(tuple(c), 'A') for c in centroids_a]
+    centroids_b = [(tuple(c), 'B') for c in centroids_b]
 
-    centroids_b = np.array(centroids_b)
-   # print("Centroids of B: ", centroids_b)
-
-    '''
-    # Plot the centroids and the points
-    try:
-        plot_points(Xa, centroids_a, 'Centroids of A', 'centroids_a.png')
-    except ValueError as e:
-        print(f"Error plotting A: {e}")
-
-    try:
-        plot_points(Xb, centroids_b, 'Centroids of B', 'centroids_b.png')
-    except ValueError as e:
-        print(f"Error plotting B: {e}") 
-        '''
-
-    return centroids_a, centroids_b
-
-
-def local_fft(iterator, ka, kb):
-
-    my_points = list(iterator)
-
-    points_a = [p[0] for p in my_points if p[1] == 'A']
-    points_b = [p[0] for p in my_points if p[1] == 'B']
-
-    local_a, local_b = fair_fft(points_a, points_b, ka, kb)
-
-    return [(x, 'A') for x in local_a] + [(x, 'B') for x in local_b] 
+    return centroids_a + centroids_b
 
 
 def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
 
-    # Na = inputPoints.filter(lambda point: point[1] == 'A').count()
-    # Nb = inputPoints.filter(lambda point: point[1] == 'B').count()
+    local_ka = int(min(2*ka/L, (Na / L)))  # DA CAPIRE!!!!!
+    local_kb = int(min(2*kb/L, (Nb / L)))  # DA CAPIRE!!!!!
 
-    local_coreset_size_a = int(min(math.ceil(ka/L), (Na / L)))  # DA CAPIRE!!!!!
-    local_coreset_size_b = int(min(math.ceil(kb/L), (Nb / L)))  # DA CAPIRE!!!!!
+    coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))
+                            .repartition(1)    # Reduce to 1 partition
+                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb)))  # Apply FFT again on the coreset
 
-    coresets = (inputPoints.mapPartitions(lambda it: local_fft(it, local_coreset_size_a, local_coreset_size_b))
-                            #.flatMap(gatherCoresets)  # gatherCoresets is a function that takes the output of local_fft and gathers all the centroids together in a single list
-                            #.flatMap(lambda it: local_fft(it, ka, kb))
-                            .collect())
-    
-    ca = list(set(tuple(p[0]) for p in coresets if p[1] == 'A'))
-    cb = list(set(tuple(p[0]) for p in coresets if p[1] == 'B'))
+    print("Coreset: ", coreset.collect())
 
-    return fair_fft(ca, cb, ka, kb)
-                
+    return coreset
   
 
 
@@ -222,17 +214,19 @@ def main():
     print('File path: ' + data_path + ' Ka: ' + str(ka) + ' Kb: ' + str(kb) + " L: " + str(L))
 
     # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
-    inputPoints = (sc.textFile(data_path)
+    input_points = (sc.textFile(data_path)
                    .repartition(numPartitions=L)
                    .map(lambda line: line.split(","))
                    .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1]))
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
-    N = inputPoints.count()
+    N = input_points.count()
 
-    Na = inputPoints.filter(lambda point: point[1] == "A").count()
+    Na = input_points.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
+
+    print('N: ' + str(N) + ' Na: ' + str(Na) + ' Nb: ' + str(Nb))
 
     # Checking if Ka, Kb and L are valid
     if ka > Na:
@@ -247,36 +241,18 @@ def main():
     
     start_time = time.time()
 
-    centroids_a, centroids_b = MRFairFFT(inputPoints, ka, kb, Na, Nb, L)
+    coreset = MRFairFFT(input_points, ka, kb, Na, Nb, L)
 
     end_time = time.time()
 
     duration_ms = int((end_time - start_time) * 1000)
 
-    print(f"File path = {os.path.basename(data_path)}, KA = {ka}, KB = {kb}, L = {L}")
-    print(f"N = {N}, NA = {Na}, NB = {Nb}")
-
-    for c in centroids_b:        
-        print(f"Center = {list(c)} Label = B")
-
-    for c in centroids_a:
-        print(f"Center = {list(c)} Label = A")
-# ----------------------------------------------- TESTING -----------------------------------------------
-
-   
     # OBJECTIVE FUNCTION CALCULATION
 
     # Merge all centroids and all points together
-    all_centroids = np.concatenate((centroids_a, centroids_b))
-    all_points = inputPoints.map(lambda x: x[0]).collect()  # Get only the points from the input RDD
-
-    calc_objective_function(all_points, all_centroids)
+    calc_objective_function(input_points, coreset)
 
     print(f"Running time of MRFairFFT = {duration_ms} ms")
-
-
-    # Call to MapReduce
-
 
 if __name__ == "__main__":
     main()
