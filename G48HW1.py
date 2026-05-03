@@ -1,3 +1,5 @@
+import math
+
 from pyspark import SparkContext, SparkConf
 import sys
 import os
@@ -7,49 +9,43 @@ import time
 
 # ---------------------------------------------- INPUT CHECKING -----------------------------------------------
 
-# Function to check positive integer (Ka, Kb)
-def check_positive_int(value, name):
+def check_arguments(args):
+    # Check number of arguments
+    if len(sys.argv) != 5:
+        raise ValueError("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
+
+    data_path = sys.argv[1]
+    if not os.path.isfile(data_path):
+        raise ValueError("File not found")
+
     try:
-        n = int(value)
+        ka = int(sys.argv[2])
     except ValueError:
-        raise ValueError(f"{name} must be an integer")
+        raise ValueError("Ka must be an integer")
+    if ka < 0:
+        raise ValueError("Ka must be greater than or equal to 0")
 
-    if n < 0:
-        raise ValueError(f"{name} must be greater than or equal to 0")
-    return n
-
-# Function to check non negative integer (L)
-def check_non_negative_int(value, name):
     try:
-        n = int(value)
+        kb = int(sys.argv[3])
     except ValueError:
-        raise ValueError(f"{name} must be an integer")
+        raise ValueError("Kb must be an integer")
+    if kb < 0:
+        raise ValueError("Kb must be greater than or equal to 0")
 
-    if n <= 0:
-        raise ValueError(f"{name} must be greater than 0")
-    return n
+    try:
+        L = int(sys.argv[4])
+    except ValueError:
+        raise ValueError("L must be an integer")
+    if L < 0:
+        raise ValueError("L must be greater than or equal to 0")
+
+    return data_path, ka, kb, L
 
 # ---------------------------------------------- OBJECTIVE FUNCTION CALCULATION -----------------------------------------------
 
-# TODO: non bisognerebbe calcolarla su tutti i punti insieme ma passo dopo passo nel map reduce
 def calc_objective_function(points, centroids):
-    max_dist = 0
-
-    points = np.asarray(points.map(lambda p: p[0]).collect())
     centroids_points = np.asarray([c[0] for c in centroids])
-
-    # Find the maximum of the minimum distances
-    for point in points:
-        # Distance from this point to ALL centroids
-        distances = np.linalg.norm(centroids_points - point, axis=1)
-
-        # Distance to the NEAREST centroid
-        min_dist = np.min(distances)
-
-        # Update maximum distance found so far
-        max_dist = max(max_dist, min_dist)
-
-    print("Objective function =", max_dist)
+    max_dist = points.map(lambda p: np.linalg.norm(p[0] - centroids_points, axis=1).min()).max()
 
     return max_dist
 
@@ -57,15 +53,7 @@ def calc_objective_function(points, centroids):
 
 # FFT algorithm for both universes and plot the centroids and the points (if 2D)
 def Fair_FFT(X, ka, kb):
-    """
-    X: iterator of points (x, label) where x is a tuple of coordinates and label is either 'A' or 'B'
-    ka: number of centroids of a
-    kb: number of centroids of b
-
-    out: centroids of a and b
-    """
-
-    # GET THE POINTS FOR EACH UNIVERSE
+    # -------------------- INPUT CHECKING ---------------------
 
     data = list(X)
 
@@ -107,7 +95,7 @@ def Fair_FFT(X, ka, kb):
     if N == 0 or ka + kb == 0:
         return []
 
-    # First centroid
+    # -------------------- FAIR FFT ALGORITHM ----------------------
 
     centroids = []
     centroids_labels = []
@@ -117,7 +105,7 @@ def Fair_FFT(X, ka, kb):
     centroids_b = 0
     added = False
 
-    # First centroid
+    # FIRST CENTROID
 
     while not added:
         first_idx = np.random.randint(N)
@@ -135,6 +123,8 @@ def Fair_FFT(X, ka, kb):
     added = False
 
     dist = np.linalg.norm(points - centroids[0], axis=1)  # Euclidean distance of all points from the first centroid, axis=2 to operate with rows
+
+    # MAIN LOOP
 
     for i in range(1, ka+kb):
         while not added:
@@ -164,17 +154,16 @@ def Fair_FFT(X, ka, kb):
         dist = np.minimum(dist, new_dist)  # Update the distance of all points from
         added = False
 
-    centroids = list(zip(centroids, centroids_labels))
+    centroids = list(zip(centroids, centroids_labels))      # Create a list of tuples (centroid, label) to return
 
     return centroids
 
 
 def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
-
     beta = 2
 
-    local_ka = int(min(beta*ka/L, (Na / L)))
-    local_kb = int(min(beta*kb/L, (Nb / L)))
+    local_ka = int(min(math.ceil(beta*ka/L), math.ceil(Na / L)))
+    local_kb = int(min(math.ceil(beta*kb/L), math.ceil(Nb / L)))
 
     coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
                             .coalesce(1)    # Collect to 1 partition
@@ -188,42 +177,27 @@ def main():
     # SPARK SETUP
     conf = SparkConf().setAppName('G48HW1')
     sc = SparkContext(conf=conf)
+    sc.setLogLevel("WARN")
 
-    # Check number of arguments
-    if len(sys.argv) != 5:
-        print("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
-        return 1
-
-    # Input reading and checking
-    data_path = sys.argv[1]
-
-    if not os.path.isfile(data_path):
-        print("File not found")
-        return 1
-
+    # CHECKING CMD LINE ARGUMENTS
     try:
-        ka = check_positive_int(sys.argv[2], "ka")
-        kb = check_positive_int(sys.argv[3], "kb")
-        L = check_non_negative_int(sys.argv[4], "L")
+        data_path, ka, kb, L = check_arguments(sys.argv)
     except ValueError as e:
         print(e)
         return 1
-
     print('File path: ' + data_path + ' KA: ' + str(ka) + ' KB: ' + str(kb) + " L: " + str(L))
 
     # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
     input_points = (sc.textFile(data_path)
-                   .repartition(numPartitions=L)
+                   .repartition(numPartitions=L)        # 1st ROUND MAP
                    .map(lambda line: line.split(","))
                    .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1]))
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
     N = input_points.count()
-
     Na = input_points.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
-
     print('N: ' + str(N) + ' NA: ' + str(Na) + ' NB: ' + str(Nb))
 
     # Checking if Ka, Kb and L are valid
@@ -249,9 +223,9 @@ def main():
         print(f"Center: {coreset[i][0]}, Label: {coreset[i][1]}")
 
     # OBJECTIVE FUNCTION CALCULATION
+    max_dist = calc_objective_function(input_points, coreset)
 
-    # Merge all centroids and all points together
-    calc_objective_function(input_points, coreset)
+    print("Objective function =", max_dist)
 
     print(f"Running time of MRFairFFT = {duration_ms} ms")
 
