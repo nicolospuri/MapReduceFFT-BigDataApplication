@@ -186,7 +186,7 @@ def main():
     except ValueError as e:
         print(e)
         return 1
-    print('File path: ' + data_path + ' KA: ' + str(ka) + ' KB: ' + str(kb) + " L: " + str(L))
+    print('File path= ' + data_path + ' KA= ' + str(ka) + ' KB= ' + str(kb) + " L= " + str(L))
 
     # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
     input_points = (sc.textFile(data_path)
@@ -199,7 +199,7 @@ def main():
     N = input_points.count()
     Na = input_points.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
-    print('N: ' + str(N) + ' NA: ' + str(Na) + ' NB: ' + str(Nb))
+    print('N= ' + str(N) + ' NA= ' + str(Na) + ' NB= ' + str(Nb))
 
     # Checking if Ka, Kb and L are valid
     if ka > Na:
@@ -220,8 +220,9 @@ def main():
 
     duration_ms = int((end_time - start_time) * 1000)
 
-    for i in range(len(coreset)):
-        print(f"Center: {coreset[i][0]}, Label: {coreset[i][1]}")
+    for c, label in coreset:
+        coords = ",".join([str(float(x)) for x in c])
+        print(f"Center = [{coords}] Label = {label}")
 
     # OBJECTIVE FUNCTION CALCULATION
     max_dist = calc_objective_function(input_points, coreset)
