@@ -2,10 +2,10 @@ from pyspark import SparkContext, SparkConf
 import sys
 import os
 import numpy as np
-import matplotlib.pyplot as plt
 import time
-import math
 
+
+# ---------------------------------------------- INPUT CHECKING -----------------------------------------------
 
 # Function to check positive integer (Ka, Kb)
 def check_positive_int(value, name):
@@ -26,45 +26,22 @@ def check_non_negative_int(value, name):
         raise ValueError(f"{name} must be an integer")
 
     if n <= 0:
-        raise ValueError(f"{name} must be greater than or equal to 0")
+        raise ValueError(f"{name} must be greater than 0")
     return n
 
-'''
-# Function to plot points and centroids (only for 2D data) and save the plot as a PNG file in the output folder
-def plot_points(points, centroids, title, filename):
-    points = np.asarray(points)
-
-    if points.ndim != 2 or points.shape[1] != 2:
-        raise ValueError("Plotting is only supported for 2D data.")
-
-    plt.figure(figsize=(7, 6))
-    plt.scatter(points[:, 0], points[:, 1], c='blue', s=40, alpha=0.7, label='Points')
-
-    if len(centroids) > 0:
-        plt.scatter(centroids[:, 0], centroids[:, 1], c='red', s=180, marker='X', label='Centroids')
-
-    plt.title(title)
-    plt.xlabel('x')
-    plt.ylabel('y')
-    plt.legend()
-    plt.grid(True, alpha=0.3)
-    #plt.gca().set_aspect('equal', adjustable='box')  # To have the same scale on both axes
-    plt.tight_layout()
-    plt.savefig('output/' + filename, dpi=300, bbox_inches='tight')
-    plt.close()
-'''
+# ---------------------------------------------- OBJECTIVE FUNCTION CALCULATION -----------------------------------------------
 
 # TODO: non bisognerebbe calcolarla su tutti i punti insieme ma passo dopo passo nel map reduce
 def calc_objective_function(points, centroids):
     max_dist = 0
 
     points = np.asarray(points.map(lambda p: p[0]).collect())
-    centroids = np.asarray(centroids.map(lambda p: p[0]).collect())
+    centroids_points = np.asarray([c[0] for c in centroids])
 
     # Find the maximum of the minimum distances
     for point in points:
         # Distance from this point to ALL centroids
-        distances = np.linalg.norm(centroids - point, axis=1)
+        distances = np.linalg.norm(centroids_points - point, axis=1)
 
         # Distance to the NEAREST centroid
         min_dist = np.min(distances)
@@ -75,6 +52,8 @@ def calc_objective_function(points, centroids):
     print("Objective function =", max_dist)
 
     return max_dist
+
+# ---------------------------------------------- MAP REDUCE FAIR FFT -----------------------------------------------
 
 # FFT algorithm for both universes and plot the centroids and the points (if 2D)
 def Fair_FFT(X, ka, kb):
@@ -90,21 +69,28 @@ def Fair_FFT(X, ka, kb):
 
     data = list(X)
 
-    # Points split
+    N = len(data)
+
+    points = []
+    labels = []
+
+    # Points split, maybe this and checking ka and kb is optional
     a_list = []
     b_list = []
 
     for point, label in data:
+        points.append(point)
+        labels.append(label)
         if label == 'A':
             a_list.append(point)
         else:
             b_list.append(point)
 
-    points_a = np.array(a_list)
-    points_b = np.array(b_list)
+    points = np.array(points)
+    labels = np.array(labels)
 
-    Na = len(points_a)
-    Nb = len(points_b)
+    Na = len(a_list)
+    Nb = len(b_list)
 
     # Check if ka is greater than 0, this should never happen
     if ka < 0:
@@ -118,71 +104,83 @@ def Fair_FFT(X, ka, kb):
 
     kb = min (kb, Nb)  # If kb is greater than Nb, we can only select Nb centroids
 
-    # FIRST CENTROID FOR A
+    if N == 0 or ka + kb == 0:
+        return []
 
-    dist_a = np.array([])
+    # First centroid
 
-    if ka == 0 or Na == 0:
-        centroids_a = []
-    else:
-        # Put the first random centroid for a
-        first_idx_a = np.random.randint(Na)
-        centroids_a = [points_a[first_idx_a]]
-        dist_a = np.linalg.norm(points_a - centroids_a[0],
-                                axis=1)  # Euclidean distance of all points from the first centroid of a
+    centroids = []
+    centroids_labels = []
 
-    # FIRST CENTROID FOR B
+    # Counters
+    centroids_a = 0
+    centroids_b = 0
+    added = False
 
-    dist_b = np.array([])
+    # First centroid
 
-    if kb == 0 or Nb == 0:
-        centroids_b = []
-    else:
-        # Put the first random centroid for b
-        first_idx_b = np.random.randint(Nb)
-        centroids_b = [points_b[first_idx_b]]
-        dist_b = np.linalg.norm(points_b - centroids_b[0],
-                                axis=1)  # Euclidean distance of all points from the first centroid of b
+    while not added:
+        first_idx = np.random.randint(N)
+        if labels[first_idx] == 'A' and ka > 0:
+            centroids.append(points[first_idx])
+            centroids_labels.append(labels[first_idx])
+            centroids_a += 1
+            added = True
+        elif labels[first_idx] == 'B' and kb > 0:
+            centroids = [points[first_idx]]
+            centroids_labels = [labels[first_idx]]
+            centroids_b += 1
+            added = True
 
-    # MAIIN ITERATION OF THE FFT ALGORITHM FOT BOTH UNIVERSES
+    added = False
 
-    max_k = max(ka, kb)
+    dist = np.linalg.norm(points - centroids[0], axis=1)  # Euclidean distance of all points from the first centroid, axis=2 to operate with rows
 
-    for i in range(1, max_k):
-        # fft for a if there are still centroids to select for a, otherwise skip to b
-        if i < ka:
-            next_idx_a = np.argmax(dist_a)  # Select the point with the maximum distance from the nearest centroid
-            centroids_a.append(points_a[next_idx_a])
+    for i in range(1, ka+kb):
+        while not added:
+            next_idx = np.argmax(dist)  # Select the point with the maximum distance from the nearest centroid
 
-            new_dist_a = np.linalg.norm(points_a - centroids_a[-1], axis=1)  # Euclidean distance of all points from the new centroid
-            dist_a = np.minimum(dist_a, new_dist_a)  # Update the distance of all points from the nearest centroid
+            if labels[next_idx] == 'A':
+                if centroids_a < ka:
+                    centroids.append(points[next_idx])
+                    centroids_labels.append(labels[next_idx])
+                    centroids_a += 1
+                    added = True
+                    continue
+            else:
+                if centroids_b < kb:
+                    centroids.append(points[next_idx])
+                    centroids_labels.append(labels[next_idx])
+                    centroids_b += 1
+                    added = True
+                    continue
 
-        # fft for a if there are still centroids to select for b, otherwise skip
-        if i < kb:
-            next_idx_b = np.argmax(dist_b)  # Select the point with the maximum distance from the nearest centroid
-            centroids_b.append(points_b[next_idx_b])
+            # Remove current point with max distance and find the next one
+            dist = np.delete(dist, next_idx, axis=0)    # axis=0 to delete a row
+            points = np.delete(points, next_idx, axis=0)
+            labels = np.delete(labels, next_idx, axis=0)
 
-            new_dist_b = np.linalg.norm(points_b - centroids_b[-1], axis=1)  # Euclidean distance of all points from the new centroid
-            dist_b = np.minimum(dist_b, new_dist_b)  # Update the distance of all points from the nearest centroid
+        new_dist = np.linalg.norm(points - centroids[-1], axis=1)  # Euclidean distance of all points from the new centroid
+        dist = np.minimum(dist, new_dist)  # Update the distance of all points from
+        added = False
 
-    centroids_a = [(tuple(c), 'A') for c in centroids_a]
-    centroids_b = [(tuple(c), 'B') for c in centroids_b]
+    centroids = list(zip(centroids, centroids_labels))
 
-    return centroids_a + centroids_b
+    return centroids
 
 
 def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
 
-    local_ka = int(min(2*ka/L, (Na / L)))  # DA CAPIRE!!!!!
-    local_kb = int(min(2*kb/L, (Nb / L)))  # DA CAPIRE!!!!!
+    beta = 2
 
-    coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))
-                            .repartition(1)    # Reduce to 1 partition
-                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb)))  # Apply FFT again on the coreset
+    local_ka = int(min(beta*ka/L, (Na / L)))
+    local_kb = int(min(beta*kb/L, (Nb / L)))
 
-    print("Coreset: ", coreset.collect())
+    coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
+                            .coalesce(1)    # Collect to 1 partition
+                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb)))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
 
-    return coreset
+    return coreset.collect()
   
 
 
@@ -211,7 +209,7 @@ def main():
         print(e)
         return 1
 
-    print('File path: ' + data_path + ' Ka: ' + str(ka) + ' Kb: ' + str(kb) + " L: " + str(L))
+    print('File path: ' + data_path + ' KA: ' + str(ka) + ' KB: ' + str(kb) + " L: " + str(L))
 
     # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
     input_points = (sc.textFile(data_path)
@@ -226,7 +224,7 @@ def main():
     Na = input_points.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
 
-    print('N: ' + str(N) + ' Na: ' + str(Na) + ' Nb: ' + str(Nb))
+    print('N: ' + str(N) + ' NA: ' + str(Na) + ' NB: ' + str(Nb))
 
     # Checking if Ka, Kb and L are valid
     if ka > Na:
@@ -247,12 +245,17 @@ def main():
 
     duration_ms = int((end_time - start_time) * 1000)
 
+    for i in range(len(coreset)):
+        print(f"Center: {coreset[i][0]}, Label: {coreset[i][1]}")
+
     # OBJECTIVE FUNCTION CALCULATION
 
     # Merge all centroids and all points together
     calc_objective_function(input_points, coreset)
 
     print(f"Running time of MRFairFFT = {duration_ms} ms")
+
+    return 0
 
 if __name__ == "__main__":
     main()
