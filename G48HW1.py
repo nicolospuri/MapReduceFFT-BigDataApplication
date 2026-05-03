@@ -62,7 +62,7 @@ def Fair_FFT(X, ka, kb):
     points = []
     labels = []
 
-    # Points split, maybe this and checking ka and kb is optional
+    # Points split
     a_list = []
     b_list = []
 
@@ -167,9 +167,10 @@ def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
 
     coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
                             .coalesce(1)    # Collect to 1 partition
-                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb)))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+                            .collect())    # Collect the final centroids to the driver
 
-    return coreset.collect()
+    return coreset
   
 
 
