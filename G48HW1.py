@@ -11,31 +11,31 @@ import time
 
 def check_arguments(args):
     # Check number of arguments
-    if len(sys.argv) != 5:
+    if len(args) != 5:
         raise ValueError("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
 
-    data_path = sys.argv[1]
+    data_path = args[1]
     '''
-    if not os.path.isfile(data_path):
+    if not os.path.isfile(data_path):       # it works only for local files, not for HDFS
         raise ValueError("File not found")
     '''
 
     try:
-        ka = int(sys.argv[2])
+        ka = int(args[2])
     except ValueError:
         raise ValueError("Ka must be an integer")
     if ka < 0:
         raise ValueError("Ka must be greater than or equal to 0")
 
     try:
-        kb = int(sys.argv[3])
+        kb = int(args[3])
     except ValueError:
         raise ValueError("Kb must be an integer")
     if kb < 0:
         raise ValueError("Kb must be greater than or equal to 0")
 
     try:
-        L = int(sys.argv[4])
+        L = int(args[4])
     except ValueError:
         raise ValueError("L must be an integer")
     if L < 0:
@@ -45,9 +45,12 @@ def check_arguments(args):
 
 # ---------------------------------------------- OBJECTIVE FUNCTION CALCULATION -----------------------------------------------
 
-def calc_objective_function(points, centroids):
+def calc_objective_function(points, centroids, sc):
     centroids_points = np.asarray([c[0] for c in centroids])
-    max_dist = points.map(lambda p: np.linalg.norm(p[0] - centroids_points, axis=1).min()).max()
+    bc = sc.broadcast(centroids_points)
+
+    max_d2 = points.map(lambda p: np.min(np.sum((np.array(p[0]) - bc.value)**2, axis=1))).max()
+    max_dist = math.sqrt(max_d2)
 
     return max_dist
 
@@ -148,9 +151,13 @@ def FairFFT(X, ka, kb):
                     continue
 
             # Remove current point with max distance and find the next one
+            dist[next_idx] = -math.inf  # Set the distance of the current point to - inf to ignore it in the next iteration
+
+            '''
             dist = np.delete(dist, next_idx, axis=0)    # axis=0 to delete a row
             points = np.delete(points, next_idx, axis=0)
             labels = np.delete(labels, next_idx, axis=0)
+            '''
 
         new_dist = np.linalg.norm(points - centroids[-1], axis=1)  # Euclidean distance of all points from the new centroid
         dist = np.minimum(dist, new_dist)  # Update the distance of all points from
@@ -168,9 +175,16 @@ def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
     local_kb = int(min(math.ceil(beta*kb/L), math.ceil(Nb / L)))
 
     coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
-                            .coalesce(1)    # Collect to 1 partition
-                            .mapPartitions(lambda it: FairFFT(it, ka, kb))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
-                            .collect())    # Collect the final centroids to the driver
+                            .collect())    # Collect the centroids to the driver
+
+    coreset = FairFFT(coreset, local_ka, local_kb)      # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+
+    '''
+    coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))  # 1st ROUND REDUCE, FFT on each partition
+                            .coalesce(1)  # Collect to 1 partition
+                            .mapPartitions(lambda it: FairFFT(it, ka, kb))  # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+                            .collect())  # Collect the final centroids to the driver
+    '''
 
     return coreset
   
@@ -191,16 +205,24 @@ def main():
     print('File path= ' + data_path + ' KA= ' + str(ka) + ' KB= ' + str(kb) + " L= " + str(L))
 
     # Read input file and divide it into L random partitions and divide into tuples of points (x, y, label)
-    input_points = (sc.textFile(data_path)
+    inputPoints = (sc.textFile(data_path)
                    .repartition(numPartitions=L)        # 1st ROUND MAP
                    .map(lambda line: line.split(","))
                    .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1]))
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
-    N = input_points.count()
-    Na = input_points.filter(lambda point: point[1] == "A").count()
+    N = inputPoints.count()
+    Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
+
+    N, Na = inputPoints.aggregate(
+        (0, 0),  # Initial value (N, Na)
+        lambda acc, point: (acc[0] + 1, acc[1] + (1 if point[1] == "A" else 0)),  # SeqOp: update counts for each point
+        lambda a, b: (a[0] + b[0], a[1] + b[1])  # CombOp: combine counts from different partitions
+    )
+    Nb = N - Na
+
     print('N= ' + str(N) + ' NA= ' + str(Na) + ' NB= ' + str(Nb))
 
     # Checking if Ka, Kb and L are valid
@@ -216,7 +238,7 @@ def main():
     
     start_time = time.time()
 
-    coreset = MRFairFFT(input_points, ka, kb, Na, Nb, L)
+    coreset = MRFairFFT(inputPoints, ka, kb, Na, Nb, L)
 
     end_time = time.time()
 
@@ -227,7 +249,7 @@ def main():
         print(f"Center = [{coords}] Label = {label}")
 
     # OBJECTIVE FUNCTION CALCULATION
-    max_dist = calc_objective_function(input_points, coreset)
+    max_dist = calc_objective_function(inputPoints, coreset, sc)
 
     print("Objective function =", max_dist)
 
