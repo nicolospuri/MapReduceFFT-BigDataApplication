@@ -150,12 +150,6 @@ def FairFFT(X, ka, kb):
             # Remove current point with max distance and find the next one
             dist[next_idx] = -math.inf  # Set the distance of the current point to - inf to ignore it in the next iteration
 
-            '''
-            dist = np.delete(dist, next_idx, axis=0)    # axis=0 to delete a row
-            points = np.delete(points, next_idx, axis=0)
-            labels = np.delete(labels, next_idx, axis=0)
-            '''
-
         new_dist = np.linalg.norm(points - centroids[-1], axis=1)  # Euclidean distance of all points from the new centroid
         dist = np.minimum(dist, new_dist)  # Update the distance of all points from
         added = False
