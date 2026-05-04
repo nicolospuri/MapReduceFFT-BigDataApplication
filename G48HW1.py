@@ -52,7 +52,7 @@ def calc_objective_function(points, centroids):
 # ---------------------------------------------- MAP REDUCE FAIR FFT -----------------------------------------------
 
 # FFT algorithm for both universes and plot the centroids and the points (if 2D)
-def Fair_FFT(X, ka, kb):
+def FairFFT(X, ka, kb):
     # -------------------- INPUT CHECKING ---------------------
 
     data = list(X)
@@ -165,9 +165,9 @@ def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
     local_ka = int(min(math.ceil(beta*ka/L), math.ceil(Na / L)))
     local_kb = int(min(math.ceil(beta*kb/L), math.ceil(Nb / L)))
 
-    coreset = (inputPoints.mapPartitions(lambda it: Fair_FFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
+    coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
                             .coalesce(1)    # Collect to 1 partition
-                            .mapPartitions(lambda it: Fair_FFT(it, ka, kb))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+                            .mapPartitions(lambda it: FairFFT(it, ka, kb))     # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
                             .collect())    # Collect the final centroids to the driver
 
     return coreset
