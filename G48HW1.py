@@ -14,9 +14,11 @@ def check_arguments(args):
     if len(sys.argv) != 5:
         raise ValueError("Usage: G48HW1 <data_path> <Ka> <Kb> <L>")
 
+    '''
     data_path = sys.argv[1]
     if not os.path.isfile(data_path):
         raise ValueError("File not found")
+    '''
 
     try:
         ka = int(sys.argv[2])
