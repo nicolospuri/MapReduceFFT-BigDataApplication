@@ -47,10 +47,7 @@ def check_arguments(args):
 
 def calc_objective_function(points, centroids, sc):
     centroids_points = np.asarray([c[0] for c in centroids])
-    bc = sc.broadcast(centroids_points)
-
-    max_d2 = points.map(lambda p: np.min(np.sum((np.array(p[0]) - bc.value)**2, axis=1))).max()
-    max_dist = math.sqrt(max_d2)
+    max_dist = points.map(lambda p: np.linalg.norm(p[0] - centroids_points, axis=1).min()).max()
 
     return max_dist
 
@@ -212,19 +209,10 @@ def main():
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
-
-    '''
     N = inputPoints.count()
     Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
-    '''
 
-    N, Na = inputPoints.aggregate(
-        (0, 0),  # Initial value (N, Na)
-        lambda acc, point: (acc[0] + 1, acc[1] + (1 if point[1] == "A" else 0)),  # SeqOp: update counts for each point
-        lambda a, b: (a[0] + b[0], a[1] + b[1])  # CombOp: combine counts from different partitions
-    )
-    Nb = N - Na
 
     print('N= ' + str(N) + ' NA= ' + str(Na) + ' NB= ' + str(Nb))
 
