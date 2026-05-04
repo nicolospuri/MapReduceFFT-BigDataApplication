@@ -168,7 +168,7 @@ def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
     coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
                             .collect())    # Collect the centroids to the driver
 
-    coreset = FairFFT(coreset, local_ka, local_kb)      # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
+    coreset = FairFFT(coreset, ka, kb)      # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
 
     '''
     coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))  # 1st ROUND REDUCE, FFT on each partition
@@ -206,7 +206,6 @@ def main():
     N = inputPoints.count()
     Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
-
 
     print('N= ' + str(N) + ' NA= ' + str(Na) + ' NB= ' + str(Nb))
 
