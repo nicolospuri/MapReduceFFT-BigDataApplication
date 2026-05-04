@@ -212,9 +212,12 @@ def main():
                    .cache())
 
     # Counting number of points in the input file and number of points with label A and B
+
+    '''
     N = inputPoints.count()
     Na = inputPoints.filter(lambda point: point[1] == "A").count()
     Nb = N - Na
+    '''
 
     N, Na = inputPoints.aggregate(
         (0, 0),  # Initial value (N, Na)
