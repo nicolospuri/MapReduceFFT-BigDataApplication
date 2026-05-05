@@ -191,10 +191,8 @@ def FairFFT(X, ka, kb):
 
 
 def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
-    beta = 2  # beta is a constant that can be tuned, it should be greater than 1 to ensure that we select enough centroids in the first round
-
-    local_ka = int(min(math.ceil(beta*ka/L), math.ceil(Na / L)))
-    local_kb = int(min(math.ceil(beta*kb/L), math.ceil(Nb / L)))
+    local_ka = int(min(ka, math.ceil(Na / L)))
+    local_kb = int(min(kb, math.ceil(Nb / L)))
 
     coreset = (inputPoints.mapPartitions(lambda it: FairFFT(it, local_ka, local_kb))       # 1st ROUND REDUCE, FFT on each partition
                             .collect())    # Collect the centroids to the driver
