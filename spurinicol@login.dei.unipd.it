@@ -59,7 +59,7 @@ def calc_objective_function(points, centroids, sc):
     centroids_points = np.asarray([c[0] for c in centroids])
     bc = sc.broadcast(centroids_points)
 
-    max_dist = (points.mapPartitions(lambda it: iter([local_objective_function(it, bc.value)]))       # Calculate the objective function for each partition
+    max_dist = (points.mapPartitions(lambda it: iter[(local_objective_function(it, centroids_points))])       # Calculate the objective function for each partition
                 .max())
 
     return max_dist
