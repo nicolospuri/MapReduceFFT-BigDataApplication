@@ -43,6 +43,24 @@ def check_arguments(args):
 
     return data_path, ka, kb, L
 
+# ---------------------------------------------- AUXILIARY FUNCTIONS -----------------------------------------------
+
+def local_num_points(points):
+    N, Na, Nb = 0, 0, 0
+    for point in points:
+        N += 1
+        if point[-1] == "A":
+            Na += 1
+        else:
+            Nb += 1
+    return N, Na, Nb
+
+def calc_num_points(points):
+    N, Na, Nb = (points.mapPartitions(lambda it: iter([local_num_points(it)]))  # Count number of points in each partitions
+                        .reduce(lambda a, b: (a[0] + b[0], a[1] + b[1], a[2] + b[2])))  # Sum number of points in each partition
+
+    return N, Na, Nb
+
 # ---------------------------------------------- OBJECTIVE FUNCTION CALCULATION -----------------------------------------------
 
 # Get the objetive function for a partition
@@ -173,7 +191,7 @@ def FairFFT(X, ka, kb):
 
 
 def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
-    beta = 8
+    beta = 2  # beta is a constant that can be tuned, it should be greater than 1 to ensure that we select enough centroids in the first round
 
     local_ka = int(min(math.ceil(beta*ka/L), math.ceil(Na / L)))
     local_kb = int(min(math.ceil(beta*kb/L), math.ceil(Nb / L)))
@@ -184,7 +202,6 @@ def MRFairFFT(inputPoints, ka, kb, Na, Nb, L):
     coreset = FairFFT(coreset, ka, kb)      # 2nd ROUND REDUCE, FFT on the aggregated centroids found by each partition
 
     return coreset
-  
 
 
 def main():
@@ -208,10 +225,7 @@ def main():
                    .map(lambda point: (tuple(float(x) for x in point[:-1]), point[-1]))
                    .cache())
 
-    # Counting number of points in the input file and number of points with label A and B
-    N, Na = (inputPoints.map(lambda point: (1, 1) if point[1] == "A" else (1, 0))       # Count number of points in each partitions
-                        .reduce(lambda a, b: (a[0] + b[0], a[1] + b[1])))               # Sum number of points in each partition
-    Nb = N - Na
+    N, Na, Nb = calc_num_points(inputPoints)
 
     print('N= ' + str(N) + ' NA= ' + str(Na) + ' NB= ' + str(Nb))
 
